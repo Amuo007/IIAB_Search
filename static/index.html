@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IIAB Search</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fff;color:#202124;height:100vh;display:flex;flex-direction:column}
+main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:80px}
+.logo{font-size:62px;font-weight:700;letter-spacing:-2px;margin-bottom:28px}
+.logo span:nth-child(1){color:#4285f4}
+.logo span:nth-child(2){color:#ea4335}
+.logo span:nth-child(3){color:#fbbc04}
+.logo span:nth-child(4){color:#4285f4}
+.bar{display:flex;align-items:center;width:560px;max-width:calc(100vw - 40px);border:1px solid #dfe1e5;border-radius:24px;padding:10px 16px;gap:10px;transition:box-shadow .2s}
+.bar:hover,.bar:focus-within{box-shadow:0 1px 6px rgba(32,33,36,.28);border-color:transparent}
+.bar input{flex:1;border:none;outline:none;font-size:16px;font-family:inherit;color:#202124;background:transparent}
+.bar input::placeholder{color:#9aa0a6}
+.btn{margin-top:26px;background:#f8f9fa;border:1px solid #f8f9fa;border-radius:4px;padding:9px 16px;font-size:14px;font-family:inherit;color:#3c4043;cursor:pointer}
+.btn:hover{box-shadow:0 1px 1px rgba(0,0,0,.1);border-color:#dadce0}
+footer{background:#f2f2f2;border-top:1px solid #e4e4e4;padding:14px 20px;font-size:13px;color:#70757a}
+</style>
+</head>
+<body>
+<main>
+  <div class="logo"><span>I</span><span>I</span><span>A</span><span>B</span></div>
+  <div class="bar">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
+    <input type="text" id="q" placeholder="Search anything..." autocomplete="off" autofocus>
+  </div>
+  <button class="btn" onclick="doSearch()">IIAB Search</button>
+</main>
+<footer>IIAB — Offline Knowledge</footer>
+<script>
+var q=document.getElementById('q');
+q.addEventListener('keydown',function(e){if(e.key==='Enter')doSearch()});
+function doSearch(){var v=q.value.trim();if(v)location.href='/results?q='+encodeURIComponent(v)}
+</script>
+</body>
+</html>
