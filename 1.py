@@ -18,7 +18,7 @@ def extract_keywords(query):
         messages=[
             {"role": "system", "content": "extract only the key search words from the user query. return only the keywords, nothing else."},
             {"role": "user", "content": query}
-    a
+        ]
     )
     return response['message']['content'].strip()
 
