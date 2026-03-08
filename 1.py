@@ -1,16 +1,19 @@
 import requests
+from urllib.parse import urljoin, quote
 from lxml import html
 import ollama
 import faiss
 import numpy as np
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 app = FastAPI()
 
 ZIM = "wikipedia_en_all_maxi_2025-08"
+
+ #"wikipedia_en_all_maxi_2025-08" "wikipedia_en_100_2026-01"
 BASE_URL = "http://box"
 
 def extract_keywords(query):
@@ -82,20 +85,20 @@ def scrape_images_from_url(rank, url, title):
             if 'math' in src.lower() or 'formula' in src.lower():
                 continue
 
-            # Make absolute URL
+            # Make absolute URL — urljoin correctly resolves ./_assets_/ etc.
             if src.startswith('//'):
                 src = 'http:' + src
-            elif src.startswith('/'):
-                src = BASE_URL + src
-            elif not src.startswith('http'):
-                src = url.rstrip('/') + '/' + src
+            elif src.startswith('http'):
+                pass  # already absolute
+            else:
+                src = urljoin(url, src)
 
             images.append({
                 'src':    src,
                 'alt':    alt or title,
                 'title':  title,
                 'source': url,
-                'rank':   rank   # lower = better ranked result
+                'rank':   rank
             })
         return images
     except Exception:
@@ -115,7 +118,7 @@ async def images(q: str):
     results  = scrape_kiwix(keywords)
     ranked   = rank_results(q, results)
 
-    # Step 2 — scrape all 25 pages in parallel (8 workers is safe on Pi 5)
+    # Step 2 — scrape all 25 pages in parallel
     all_images = []
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
@@ -128,7 +131,20 @@ async def images(q: str):
     # Step 3 — sort by source page rank so top result images come first
     all_images.sort(key=lambda x: x['rank'])
 
+    # Step 4 — rewrite src URLs through our proxy so the browser can load them
+    for img in all_images:
+        img['src'] = '/proxy-image?url=' + quote(img['src'], safe='')
+
     return {'query': q, 'images': all_images}
+
+@app.get("/proxy-image")
+async def proxy_image(url: str):
+    try:
+        response = requests.get(url, timeout=5)
+        content_type = response.headers.get("content-type", "image/jpeg")
+        return Response(content=response.content, media_type=content_type)
+    except Exception:
+        return Response(status_code=404)
 
 @app.get("/ai")
 async def ai_answer(q: str):
