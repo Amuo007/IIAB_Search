@@ -15,3 +15,9 @@ ollama==0.4.4
 # Vector similarity search
 faiss-cpu==1.9.0
 numpy==1.26.4
+
+
+
+
+
+
