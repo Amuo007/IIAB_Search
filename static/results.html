@@ -100,7 +100,7 @@ var query = params.get('q') || '';
 document.getElementById('q').value = query;
 document.title = query + ' - IIAB Search';
 document.getElementById('tab-all').href    = '/results?q=' + encodeURIComponent(query);
-document.getElementById('tab-images').href = '/images?q='  + encodeURIComponent(query);
+document.getElementById('tab-images').href = '/images-page?q='  + encodeURIComponent(query);
 
 document.getElementById('q').addEventListener('keydown', function(e){
   if(e.key === 'Enter' && this.value.trim())
