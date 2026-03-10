@@ -1,77 +1,167 @@
 import requests
-from urllib.parse import urljoin, quote
 from lxml import html
+from urllib.parse import urljoin
 import ollama
 import faiss
 import numpy as np
-from fastapi import FastAPI
+import time
+import sqlite3
+import json
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse, Response
+from fastapi.responses import FileResponse, StreamingResponse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-app = FastAPI()
+# ─── SQLite Cache Setup ───────────────────────────────────────────────────────
 
-ZIM = "wikipedia_en_all_maxi_2025-08"
+DB_PATH   = "cache.db"
+CACHE_TTL = 60 * 60 * 24 * 7  # 7 days in seconds
 
- #"wikipedia_en_all_maxi_2025-08" "wikipedia_en_100_2026-01"
+def init_db():
+    con = sqlite3.connect(DB_PATH)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS search_cache (
+            query       TEXT PRIMARY KEY,
+            results     TEXT NOT NULL,
+            timestamp   REAL NOT NULL
+        )
+    """)
+    con.execute("CREATE INDEX IF NOT EXISTS idx_query ON search_cache(query)")
+    con.commit()
+    con.close()
+
+def db_get(q: str):
+    con = sqlite3.connect(DB_PATH)
+    row = con.execute(
+        "SELECT results, timestamp FROM search_cache WHERE query = ?", (q,)
+    ).fetchone()
+    con.close()
+    if row:
+        results, ts = row
+        if (time.time() - ts) < CACHE_TTL:
+            return json.loads(results)
+    return None
+
+def db_set(q: str, ranked: list):
+    con = sqlite3.connect(DB_PATH)
+    con.execute(
+        "INSERT OR REPLACE INTO search_cache (query, results, timestamp) VALUES (?, ?, ?)",
+        (q, json.dumps(ranked), time.time())
+    )
+    con.commit()
+    con.close()
+
+def db_suggest(q: str, limit: int = 8):
+    """Return up to `limit` cached queries that start with q (case-insensitive)."""
+    con = sqlite3.connect(DB_PATH)
+    rows = con.execute(
+        "SELECT query FROM search_cache WHERE query LIKE ? ORDER BY timestamp DESC LIMIT ?",
+        (q + "%", limit)
+    ).fetchall()
+    con.close()
+    return [r[0] for r in rows]
+
+# ─── Lifespan ────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    print("✅ SQLite cache initialised")
+    yield
+    print("🛑 Server shutting down")
+
+app = FastAPI(lifespan=lifespan)
+
 BASE_URL = "http://box"
 
-def extract_keywords(query):
-    response = ollama.chat(
-        model="qwen2.5:0.5b",
-        messages=[
-            {"role": "system", "content": "extract only the key search words from the user query. return only the keywords, nothing else."},
-            {"role": "user", "content": query}
-        ]
-    )
-    return response['message']['content'].strip()
+ZIMS = [
+    {"name": "wikipedia_en_all_maxi_2025-08", "count": 20, "has_images": True},
+    {"name": "wikipedia_en_100_2026-01",      "count": 5,  "has_images": True},
+    {"name": "devdocs_en_python_2026-02",     "count": 5,  "has_images": False},
+    {"name": "devdocs_en_c_2026-01",          "count": 5,  "has_images": False},
+    {"name": "devdocs_en_git_2026-01",        "count": 5,  "has_images": False},
+    {"name": "devdocs_en_openjdk_2026-02",    "count": 5,  "has_images": False},
+]
 
-def scrape_kiwix(keywords):
-    url = f"{BASE_URL}/kiwix/search?pattern={keywords}&books.name={ZIM}&start=0&pageLength=25"
-    response = requests.get(url)
-    tree = html.fromstring(response.content)
-    results = []
-    for li in tree.xpath('//div[@class="results"]//li'):
-        try:
-            title = li.xpath('.//a/text()')[0].strip()
-            href = li.xpath('.//a/@href')[0]
-            snippet = ' '.join(li.xpath('.//cite//text()')).strip()
-            wordcount = li.xpath('.//div[@class="informations"]/text()')[0].strip()
-            results.append({
-                'title': title,
-                'url': BASE_URL + href,
-                'snippet': snippet,
-                'wordcount': wordcount
-            })
-        except:
-            continue
-    return results
+# ─── Core pipeline ────────────────────────────────────────────────────────────
+
+def scrape_kiwix(q, zim_name, count, has_images):
+    url = f"{BASE_URL}/kiwix/search?pattern={q}&books.name={zim_name}&start=0&pageLength={count}"
+    print(url)
+    try:
+        response = requests.get(url, timeout=8)
+        tree = html.fromstring(response.content)
+        results = []
+        for li in tree.xpath('//div[@class="results"]//li'):
+            try:
+                title     = li.xpath('.//a/text()')[0].strip()
+                href      = li.xpath('.//a/@href')[0]
+                snippet   = ' '.join(li.xpath('.//cite//text()')).strip()
+                wordcount = li.xpath('.//div[@class="informations"]/text()')[0].strip()
+                results.append({
+                    'title':      title,
+                    'url':        BASE_URL + href,
+                    'snippet':    snippet,
+                    'wordcount':  wordcount,
+                    'source_zim': zim_name,
+                    'has_images': has_images
+                })
+            except:
+                continue
+        return results
+    except Exception:
+        return []
+
+def scrape_all_zims(q):
+    all_results = []
+    with ThreadPoolExecutor(max_workers=len(ZIMS)) as executor:
+        futures = {
+            executor.submit(scrape_kiwix, q, z["name"], z["count"], z["has_images"]): z
+            for z in ZIMS
+        }
+        for future in as_completed(futures):
+            all_results.extend(future.result())
+    return all_results
 
 def embed(text):
     return np.array(ollama.embeddings(model="mxbai-embed-large", prompt=text)["embedding"], dtype=np.float32)
 
 def rank_results(query, results):
-    query_embedding = embed(query)
-    title_embeddings = [embed(r['title']) for r in results]
+    if not results:
+        return []
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        query_future  = executor.submit(embed, query)
+        title_futures = [executor.submit(embed, r['title']) for r in results]
+        query_embedding  = query_future.result()
+        title_embeddings = [f.result() for f in title_futures]
+
     matrix = np.stack(title_embeddings)
     faiss.normalize_L2(matrix)
     faiss.normalize_L2(query_embedding.reshape(1, -1))
     index = faiss.IndexFlatIP(len(query_embedding))
     index.add(matrix)
-    _, indices = index.search(query_embedding.reshape(1, -1), 25)
+    k = min(len(results), 25)
+    scores, indices = index.search(query_embedding.reshape(1, -1), k)
+
+    for rank, (idx, score) in enumerate(zip(indices[0], scores[0])):
+        print(f"[{rank+1}] {score:.4f} — {results[idx]['title']} ({results[idx]['source_zim']})")
+
     return [results[i] for i in indices[0]]
 
+def full_pipeline(q: str):
+    results = scrape_all_zims(q)
+    ranked  = rank_results(q, results)[:25]
+    return ranked
+
 def scrape_images_from_url(rank, url, title):
-    """Visit a single result URL and extract all usable images."""
     try:
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=8)
         tree = html.fromstring(response.content)
         images = []
         for img in tree.xpath('//img'):
-            src = img.get('src', '')
-            alt = img.get('alt', title)
-
-            # Skip tiny icons, spacers, and math formulas
+            src    = img.get('src', '')
+            alt    = img.get('alt', title)
             width  = img.get('width',  '')
             height = img.get('height', '')
             try:
@@ -84,15 +174,10 @@ def scrape_images_from_url(rank, url, title):
                 continue
             if 'math' in src.lower() or 'formula' in src.lower():
                 continue
-
-            # Make absolute URL — urljoin correctly resolves ./_assets_/ etc.
             if src.startswith('//'):
                 src = 'http:' + src
-            elif src.startswith('http'):
-                pass  # already absolute
-            else:
+            elif not src.startswith('http'):
                 src = urljoin(url, src)
-
             images.append({
                 'src':    src,
                 'alt':    alt or title,
@@ -104,47 +189,50 @@ def scrape_images_from_url(rank, url, title):
     except Exception:
         return []
 
+# ─── Endpoints ────────────────────────────────────────────────────────────────
+
+@app.get("/suggest")
+async def suggest(q: str):
+    """Autocomplete from cached queries. Pure SQLite prefix match — very fast."""
+    if not q or len(q) < 2:
+        return {"suggestions": []}
+    suggestions = db_suggest(q.lower())
+    return {"suggestions": suggestions}
+
 @app.get("/search")
-async def search(q: str):
-    keywords = extract_keywords(q)
-    results  = scrape_kiwix(keywords)
-    ranked   = rank_results(q, results)
-    return {'query': q, 'keywords': keywords, 'results': ranked}
+async def search(q: str, background_tasks: BackgroundTasks):
+    cached = db_get(q)
+    if cached:
+        print(f"✅ Cache hit: {q}")
+        return {'query': q, 'keywords': q, 'results': cached, 'cached': True}
+    print(f"🔍 Cache miss: {q}")
+    ranked = full_pipeline(q)
+    if ranked:
+        background_tasks.add_task(db_set, q, ranked)
+    return {'query': q, 'keywords': q, 'results': ranked, 'cached': False}
 
 @app.get("/images")
-async def images(q: str):
-    # Step 1 — get ranked results (same as /search)
-    keywords = extract_keywords(q)
-    results  = scrape_kiwix(keywords)
-    ranked   = rank_results(q, results)
+async def images(q: str, background_tasks: BackgroundTasks):
+    cached = db_get(q)
+    if cached:
+        ranked = cached
+    else:
+        ranked = full_pipeline(q)
+        if ranked:
+            background_tasks.add_task(db_set, q, ranked)
 
-    # Step 2 — scrape all 25 pages in parallel
+    image_candidates = [r for r in ranked if r.get('has_images')]
     all_images = []
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
             executor.submit(scrape_images_from_url, rank, r['url'], r['title']): rank
-            for rank, r in enumerate(ranked)
+            for rank, r in enumerate(image_candidates)
         }
         for future in as_completed(futures):
             all_images.extend(future.result())
 
-    # Step 3 — sort by source page rank so top result images come first
     all_images.sort(key=lambda x: x['rank'])
-
-    # Step 4 — rewrite src URLs through our proxy so the browser can load them
-    for img in all_images:
-        img['src'] = '/proxy-image?url=' + quote(img['src'], safe='')
-
     return {'query': q, 'images': all_images}
-
-@app.get("/proxy-image")
-async def proxy_image(url: str):
-    try:
-        response = requests.get(url, timeout=5)
-        content_type = response.headers.get("content-type", "image/jpeg")
-        return Response(content=response.content, media_type=content_type)
-    except Exception:
-        return Response(status_code=404)
 
 @app.get("/ai")
 async def ai_answer(q: str):
@@ -153,7 +241,7 @@ async def ai_answer(q: str):
             model="qwen2.5:0.5b",
             messages=[
                 {"role": "system", "content": "answer the user question briefly in 2-3 sentences."},
-                {"role": "user", "content": q}
+                {"role": "user",   "content": q}
             ],
             stream=True
         )
