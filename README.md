@@ -4,35 +4,45 @@ A Google-style search interface for offline Wikipedia via [Kiwix](https://www.ki
 
 ---
 
-## Features
+## Android Setup (Termux)
 
-- 🔍 Full-text search over offline Wikipedia (via Kiwix)
-- 🤖 AI keyword extraction for better search queries
-- 📊 Semantic re-ranking of results using embeddings + FAISS
-- ⚡ Streaming AI answer box (2–3 sentence summary)
-- 📴 Fully offline — no internet required after setup
+Run directly on your Android device using Termux.
+
+### Requirements
+- [Termux](https://f-droid.org/en/packages/com.termux/) installed from F-Droid
+- IIAB running on the same device (Kiwix on `http://localhost:8085`)
+
+### Steps
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/Amuo007/iiab-search
+cd iiab-search
+
+# 2. Run setup (once)
+bash setup.sh
+
+# 3. Run the app (every time)
+bash run.sh
+```
+
+### What setup.sh does
+- Installs Python and Ollama (only if not already installed)
+- Installs all Python dependencies from `requirements.txt`
+- Patches `BASE_URL` to `http://localhost:8085` (IIAB on Android)
+- Starts Ollama and waits until it's ready
+- Pulls `snowflake-arctic-embed:22m` and `qwen2.5:0.5b` (only if not already downloaded)
+
+### What run.sh does
+- Checks if Ollama is running — starts it if not
+- Waits until Ollama is ready
+- Runs `python 1.py`
 
 ---
 
-## How It Works
+## Raspberry Pi / IIAB Server Setup
 
-```
-User query
-    │
-    ├─► /search
-    │       ├─ Extract keywords       (qwen2.5:0.5b)
-    │       ├─ Scrape Kiwix results   (requests + lxml)
-    │       └─ Re-rank semantically   (mxbai-embed-large + FAISS)
-    │
-    └─► /ai
-            └─ Stream 2–3 sentence answer  (qwen2.5:0.5b)
-```
-
----
-
-## Requirements
-
-### Python dependencies
+### Requirements
 
 ```bash
 pip install -r requirements.txt
@@ -50,19 +60,15 @@ pip install -r requirements.txt
 
 ### Ollama models
 
-Install [Ollama](https://ollama.com) then pull:
-
 ```bash
 ollama pull qwen2.5:0.5b
-ollama pull mxbai-embed-large
+ollama pull snowflake-arctic-embed:22m
 ```
 
----
-
-## Setup
+### Steps
 
 ```bash
-# 1. Clone / copy project files
+# 1. Clone the repo
 git clone <your-repo>
 cd iiab-search
 
@@ -71,17 +77,51 @@ pip install -r requirements.txt
 
 # 3. Pull Ollama models
 ollama pull qwen2.5:0.5b
-ollama pull mxbai-embed-large
+ollama pull snowflake-arctic-embed:22m
 
-# 4. Make sure Kiwix is running at http://box
-#    and the ZIM file matches the name in main.py:
-#    ZIM = "wikipedia_en_all_maxi_2025-08"
-
-# 5. Start the server
-python main.py
+# 4. Start the server
+python 1.py
 ```
 
 Open **http://localhost:5000** in your browser.
+
+---
+
+## How It Works
+
+```
+User query
+    │
+    ├─► /search
+    │       ├─ Scrape Kiwix results   (requests + lxml)
+    │       └─ Re-rank semantically   (snowflake-arctic-embed:22m + FAISS)
+    │
+    └─► /ai
+            └─ Stream 2–3 sentence answer  (qwen2.5:0.5b)
+```
+
+---
+
+## Features
+
+- 🔍 Full-text search over offline Wikipedia and DevDocs (via Kiwix)
+- 📊 Semantic re-ranking of results using embeddings + FAISS
+- ⚡ Streaming AI answer box (2–3 sentence summary)
+- 🖼️ Images page with masonry grid
+- 💾 SQLite result caching (7-day TTL)
+- 🔎 Autocomplete from cached queries
+- 📴 Fully offline — no internet required after setup
+
+---
+
+## Configuration
+
+Edit the top of `1.py` to match your setup:
+
+```python
+BASE_URL = "http://localhost:8085"  # Android (IIAB)
+BASE_URL = "http://box"             # Raspberry Pi (IIAB)
+```
 
 ---
 
@@ -89,29 +129,20 @@ Open **http://localhost:5000** in your browser.
 
 ```
 iiab-search/
-├── main.py              # FastAPI backend
+├── 1.py                 # FastAPI backend
 ├── requirements.txt     # Python dependencies
+├── setup.sh             # Android/Termux one-time setup
+├── run.sh               # Android/Termux daily runner
 ├── README.md
 └── static/
     ├── index.html       # Search homepage
-    └── results.html     # Results page with AI answer box
-```
-
----
-
-## Configuration
-
-Edit the top of `main.py` to match your setup:
-
-```python
-ZIM = "wikipedia_en_all_maxi_2025-08"   # Your Kiwix ZIM file name
-BASE_URL = "http://box"                  # Your Kiwix server address
+    ├── results.html     # Results page with AI answer box
+    └── images.html      # Images page
 ```
 
 ---
 
 ## Known Limitations
 
-- **Slow on low-end hardware** — 25 embeddings are generated sequentially per search; expect 10–20s on a Raspberry Pi
-- **AI answer has no article context** — the `/ai` endpoint answers from model knowledge only, not from the retrieved Wikipedia articles
-- **No error handling** — if Kiwix is unreachable, the app will crash silently
+- **Slow on low-end hardware** — embeddings are generated per search; expect slower performance on older devices
+- **AI answer has no article context** — the `/ai` endpoint answers from model knowledge only, not from retrieved articles
