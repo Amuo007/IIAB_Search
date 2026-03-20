@@ -125,7 +125,8 @@ def scrape_all_zims(q):
     return all_results
 
 def embed(text):
-    return np.array(ollama.embeddings(model="mxbai-embed-large", prompt=text)["embedding"], dtype=np.float32)
+    return np.array(ollama.embeddings(model="snowflake-arctic-embed:22m", prompt=text)["embedding"], dtype=np.float32)
+    # snowflake-arctic-embed:22m , mxbai-embed-large
 
 def rank_results(query, results):
     if not results:
