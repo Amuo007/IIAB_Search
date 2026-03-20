@@ -1,5 +1,15 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
+echo ""
+echo " ___ ___    _    ____    ____                      _     "
+echo "|_ _|_ _|  / \  | __ )  / ___|  ___  __ _ _ __ ___| |__  "
+echo " | | | |  / _ \ |  _ \  \___ \ / _ \/ _\` | '__/ __| '_ \ "
+echo " | | | | / ___ \| |_) |  ___) |  __/ (_| | | | (__| | | |"
+echo "|___|___/_/   \_\____/  |____/ \___|\__,_|_|  \___|_| |_|"
+echo ""
+echo "  Setting up IIAB Search..."
+echo ""
+
 # Install python and ollama only if not already installed
 command -v python > /dev/null 2>&1 || pkg install -y python
 command -v ollama > /dev/null 2>&1 || pkg install -y ollama
