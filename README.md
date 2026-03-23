@@ -24,19 +24,6 @@ bash setup.sh
 
 ```
 
-### What setup.sh does
-- Installs Python and Ollama (only if not already installed)
-- Installs all Python dependencies from `requirements.txt`
-- Patches `BASE_URL` to `http://localhost:8085` (IIAB on Android)
-- Starts Ollama and waits until it's ready
-- Pulls `snowflake-arctic-embed:22m` and `qwen2.5:0.5b` (only if not already downloaded)
-
-### What run.sh does
-- Checks if Ollama is running — starts it if not
-- Waits until Ollama is ready
-- Runs `python 1.py`
-
----
 
 ## Raspberry Pi / IIAB Server Setup
 
