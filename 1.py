@@ -76,8 +76,8 @@ app = FastAPI(lifespan=lifespan)
 BASE_URL = "http://localhost:8085"
 
 ZIMS = [
-    {"name": "wikipedia_en_all_maxi_2025-08", "count": 20, "has_images": True},
-    {"name": "wikipedia_en_100_2026-01",      "count": 5,  "has_images": True},
+    {"name": "wikipedia_en_all_maxi_2025-08", "count": 5, "has_images": True},
+    {"name": "wikipedia_en_100_2026-01",      "count": 20,  "has_images": True},
     {"name": "devdocs_en_python_2026-02",     "count": 5,  "has_images": False},
     {"name": "devdocs_en_c_2026-01",          "count": 5,  "has_images": False},
     {"name": "devdocs_en_git_2026-01",        "count": 5,  "has_images": False},
