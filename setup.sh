@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 
 echo ""
 echo " ___ ___    _    ____    ____                      _     "
@@ -10,38 +10,63 @@ echo ""
 echo "  Setting up IIAB Search..."
 echo ""
 
-# Install packages (skip if root since pkg doesn't work as root)
-if [ "$(id -u)" != "0" ]; then
-  command -v python > /dev/null 2>&1 || pkg install -y python
-  command -v ollama > /dev/null 2>&1 || pkg install -y ollama
-  # lxml dependencies
-  pkg install -y libxml2 libxslt
+
+set -euo pipefail
+
+echo "==> Updating apt..."
+apt update
+
+echo "==> Installing Debian packages..."
+apt install -y \
+  curl \
+  python3 \
+  python3-numpy \
+  python3-lxml \
+  python3-fastapi \
+  python3-requests \
+  python3-httpx \
+  python3-ollama \
+  python3-faiss \
+  python3-bs4 \
+  python3-cssselect \
+  python3-html5lib \
+  python3-soupsieve
+
+echo "==> Verifying Python imports..."
+python3 -c "import numpy, lxml, fastapi, requests, ollama, faiss; print('all good')"
+
+echo "==> Installing Ollama if missing..."
+if ! command -v ollama >/dev/null 2>&1; then
+  curl -fsSL https://ollama.com/install.sh | sh
 else
-  echo "⚠ Running as root — skipping pkg install. Make sure python, ollama, libxml2, libxslt are installed."
+  echo "Ollama already installed."
 fi
 
-# Install pip deps
-pip install -r requirements.txt
+echo "==> Stopping old Ollama server if running..."
+pkill -f "ollama serve" 2>/dev/null || true
 
-# Patch BASE_URL only if not already patched
-grep -q 'localhost:8085' 1.py || sed -i 's|BASE_URL = .*|BASE_URL = "http://localhost:8085"|g' 1.py
+echo "==> Starting Ollama in background..."
+nohup ollama serve > /root/ollama.log 2>&1 &
 
-# Start ollama and wait until it actually responds
-if ! command -v ollama > /dev/null 2>&1; then
-  echo "✗ ollama not found. Install it first: pkg install ollama"
-  exit 1
-fi
-
-ollama serve &
-echo "Waiting for Ollama..."
-until curl -sf http://localhost:11434 > /dev/null 2>&1; do
+echo "==> Waiting for Ollama API..."
+for i in $(seq 1 20); do
+  if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+    echo "Ollama is up."
+    break
+  fi
   sleep 1
 done
-echo "✓ Ollama ready"
 
-# Pull models only if not already downloaded
-ollama list | grep -q "snowflake-arctic-embed:22m" || ollama pull snowflake-arctic-embed:22m
-ollama list | grep -q "qwen2.5:0.5b"              || ollama pull qwen2.5:0.5b
+echo "==> Pulling models..."
+ollama pull qwen2.5:0.5b
+ollama pull snowflake-arctic-embed:22m
 
-echo ""
-echo "✓ Setup complete! Run: bash run.sh"
+echo "==> Final checks..."
+python3 -c "import numpy, lxml, fastapi, requests, ollama, faiss; print('python imports OK')"
+ollama list
+
+echo
+echo "==> Setup complete."
+echo "Ollama log: /root/ollama.log"
+echo "Run your project with:"
+echo "python3 1.py"
