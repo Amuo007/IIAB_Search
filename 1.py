@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-BASE_URL = "http://box"
+BASE_URL = "http://localhost:8085"
 
 ZIMS = [
     {"name": "wikipedia_en_all_maxi_2025-08", "count": 20, "has_images": True},
