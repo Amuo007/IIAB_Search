@@ -69,4 +69,4 @@ echo
 echo "==> Setup complete."
 echo "Ollama log: /root/ollama.log"
 echo "Run your project with:"
-echo "python3 1.py"
+echo "bash run.sh"
