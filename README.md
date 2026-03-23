@@ -19,8 +19,12 @@ Run directly on your Android device using Termux.
 git clone https://github.com/Amuo007/iiab-search
 cd iiab-search
 
-# 2. Run it will set up and run 
+# 2. donwload zims
+bash download_zims.sh
+
+# 3. Run it will set up and run 
 bash setup.sh
+
 
 ```
 
